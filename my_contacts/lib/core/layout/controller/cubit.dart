@@ -1,0 +1,197 @@
+import 'package:bloc/bloc.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:hexcolor/hexcolor.dart';
+import 'package:my_contacts/core/layout/controller/state.dart';
+import '../../../features/my_contacts/contact/presentation/screens/contact.dart';
+import '../../../features/my_contacts/favorite/presentation/screens/favorites.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart' as p;
+
+class ContactsCubit extends Cubit<ContactsStates> {
+  ContactsCubit() : super(ContactsInitial());
+
+  static ContactsCubit get(context) => BlocProvider.of(context);
+
+  int currentIndex = 1;
+  IconData inactiveIconFav = Icons.favorite_outline;
+  IconData activeIconFav = Icons.favorite;
+  IconData inactiveIconCon = Icons.contacts_outlined;
+  IconData activeIconCon = Icons.contacts;
+
+  IconData inactiveRowFav = Icons.favorite_outline;
+
+  IconData fabIcon = Icons.edit;
+  bool isPressed = false;
+  bool isPressedRow = false;
+  String isEditedd = 'f';
+  Database? database;
+  var scaffoldKey = GlobalKey<ScaffoldState>();
+  var formKey = GlobalKey<FormState>();
+  TextEditingController firstnameController = TextEditingController();
+  TextEditingController lastnameController = TextEditingController();
+  TextEditingController numController = TextEditingController();
+
+  List<BottomNavigationBarItem> get navBarItems => [
+    BottomNavigationBarItem(
+      icon: Icon(currentIndex == 0 ? activeIconFav : inactiveIconFav),
+      label: 'Favorites',
+    ),
+    BottomNavigationBarItem(
+      icon: Icon(currentIndex == 1 ? activeIconCon : inactiveIconCon),
+      label: 'Contacts',
+    ),
+  ];
+  List<Widget> screens = [Favorites(), Contact()];
+  List<String> titles = ['Favorites', 'Contacts'];
+  List<Map> contactTask = [];
+  List<Map> favTask = [];
+
+  void changeFabIcon({required bool isPressedd, required IconData icon}) {
+    isPressed = isPressedd;
+    fabIcon = icon;
+    emit(ChangeFabIconState());
+  }
+
+  void changeRowIcon({required void Function() function}) {
+    function();
+    emit(ChangeRowIconState());
+  }
+
+  void changeIndex(int index) {
+    currentIndex = index;
+    emit(ChangeBottomNavState());
+  }
+
+  void createDB() async {
+    var databasesPath = await getDatabasesPath();
+    String path = p.join(databasesPath, 'Contacts.db');
+    openDB(path: path);
+    emit(ContactCreateDataFromDBState());
+  }
+
+  void openDB({required String path}) async {
+    await openDatabase(
+      path,
+      version: 1,
+      onCreate: (Database db, int version) async {
+        // When creating the db, create the table
+        await db
+            .execute(
+              'CREATE TABLE information (id INTEGER PRIMARY KEY, Firstname TEXT,Lastname TEXT, num TEXT,fav TEXT,edited TEXT)',
+            )
+            .then((value) {
+              debugPrint('Table Created');
+            })
+            .catchError((error) {
+              debugPrint('Error when create table ${error.toString()}');
+            });
+      },
+      onOpen: (database) {
+        getDB(database);
+        emit(ContactOpenDataFromDBState());
+        debugPrint('DB Opened');
+      },
+    ).then((value) {
+      database = value;
+    });
+  }
+
+  void insertDB({
+    required String firstName,
+    required String lastName,
+    required String num,
+  }) async {
+    await database!
+        .transaction((txn) async {
+          await txn.rawInsert(
+            'INSERT INTO information(Firstname, Lastname, num,fav,edited) VALUES("$firstName", "$lastName", "$num","No","No")',
+          );
+        })
+        .then((value) {
+          getDB(database);
+          emit(ContactInsertDataFromDBState());
+          debugPrint('$value Data Inserted');
+        })
+        .catchError((error) {
+          debugPrint('error when inserting data ${error.toString()}');
+        });
+  }
+
+  void getDB(database) async {
+    contactTask = [];
+    favTask = [];
+    await database!.rawQuery('SELECT * FROM information').then((value) {
+      value.forEach((element) {
+        if (element['fav'] == 'Yes') {
+          favTask.add(element);
+        }
+        contactTask.add(element);
+      });
+      //sort
+      contactTask.sort((a, b) {
+        int firstName = (a['Firstname'] as String).toLowerCase().compareTo(
+          (b['Firstname'] as String).toLowerCase(),
+        );
+        if (firstName != 0) return firstName;
+        return (a['Lastname'] as String).toLowerCase().compareTo(
+          (b['Lastname'] as String).toLowerCase(),
+        );
+      });
+      //sort
+      favTask.sort((a, b) {
+        int firstName = (a['Firstname'] as String).toLowerCase().compareTo(
+          (b['Firstname'] as String).toLowerCase(),
+        );
+        if (firstName != 0) return firstName;
+        return (a['Lastname'] as String).toLowerCase().compareTo(
+          (b['Lastname'] as String).toLowerCase(),
+        );
+      });
+      firstnameController.clear();
+      lastnameController.clear();
+      numController.clear();
+      emit(ContactGetDataFromDBState());
+    });
+  }
+
+  void updateFavDB({required int id, required String fav}) async {
+    await database!
+        .rawUpdate('UPDATE information SET  fav = ? WHERE id = ?', [fav, id])
+        .then((value) {
+          getDB(database);
+          emit(ContactUpdateFavFromDBState());
+          debugPrint("Data Updated");
+        });
+  }
+
+  void updateDB({
+    required int id,
+    required String firstname,
+    required String lastname,
+    required String num,
+  }) async {
+    await database!
+        .rawUpdate('UPDATE information SET  Firstname = ?, Lastname = ?, num = ? WHERE id = ?', [
+          firstname,
+          lastname,
+          num,
+          id,
+        ])
+        .then((value) {
+          getDB(database);
+          emit(ContactUpdateFromDBState());
+          debugPrint("Data Updated");
+        });
+  }
+
+  void deleteDB({required int id}) async {
+    await database!
+        .rawDelete('DELETE FROM information WHERE id = ?', [id])
+        .then((value) {
+          getDB(database);
+          emit(ContactUpdateFavFromDBState());
+        });
+  }
+}
